@@ -509,28 +509,40 @@ impl MetashrewRocksDBSync {
         Ok(())
     }
 
-    async fn best_height(&self, block_number: u32) -> Result<u32> {
-        let mut best: u32 = block_number;
-        let count = self.fetch_blockcount().await?;
-        
-        if best >= count - std::cmp::min(6, count) {
-            loop {
-                if best == 0 {
-                    break;
-                }
-                let blockhash = self
-                    .get_blockhash(best)
-                    .await
-                    .ok_or(anyhow!("failed to retrieve blockhash"))?;
-                let remote_blockhash = self.fetch_blockhash(best).await?;
-                if blockhash == remote_blockhash {
-                    break;
-                } else {
-                    best = best - 1;
-                }
-            }
-        }
-        return Ok(best);
+    async fn best_height(&self, block_number: u32) -> Result<u32> {  
+        let mut best: u32 = block_number;  
+        let count = self.fetch_blockcount().await?;  
+          
+        if best >= count - std::cmp::min(6, count) {  
+            loop {  
+                if best == 0 {  
+                    break;  
+                }  
+
+                // 尝试获取本地区块哈希  
+                let blockhash = match self.get_blockhash(best).await {  
+                    Some(hash) => hash,  
+                    None => {  
+                        // 如果本地没有，从远程获取并存储  
+                        let remote_hash = self.fetch_blockhash(best).await?;  
+                        // 存储哈希以供将来使用  
+                        self.put(  
+                            &(String::from(HEIGHT_TO_HASH) + &best.to_string()).into_bytes(),  
+                            &remote_hash,  
+                        ).await?;  
+                        remote_hash  
+                    }  
+                };  
+                  
+                let remote_blockhash = self.fetch_blockhash(best).await?;  
+                if blockhash == remote_blockhash {  
+                    break;  
+                } else {  
+                    best = best - 1;  
+                }  
+            }  
+        }  
+        return Ok(best);  
     }
 
     async fn get_once(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>> {
